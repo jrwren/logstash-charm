@@ -1,0 +1,20 @@
+#!/bin/bash
+set -eux
+USER=logstash
+apt-get install -y --no-install-recommends openjdk-7-jre-headless python-jinja2 python-pip
+
+# Logstash user
+[ -z "$(id ${USER})"] && useradd ${USER}
+
+# Conf dir
+mkdir -p /etc/logstash.d
+
+# Log file
+touch /var/log/logstash.log
+chown ${USER}: /var/log/logstash.log
+
+# Upstart job
+install -o root -g root -m 0644 ${CHARM_DIR}/files/logstash.conf /etc/init/logstash.conf
+
+# Software dl & install
+$CHARM_DIR/hooks/utils.py --install

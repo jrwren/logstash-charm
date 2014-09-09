@@ -1,0 +1,7 @@
+{% for es in elasticsearch %}
+output {
+   elasticsearch {
+    cluster => {{ es.cluster_name }}
+  }  
+}
+{% endfor %}

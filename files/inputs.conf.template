@@ -1,0 +1,15 @@
+# Collectd optimized collection. http://goo.gl/ztSMpd
+# We use a separate port for each service so that we can tag
+# records by service.
+{% for cd in collectd %}
+input {
+  udp {
+    port => {{ cd.port }}
+    buffer_size => 1452 
+    type => "collectd"
+    codec => collectd { }
+    add_field => {"service": "{{ cd.service }}"}
+  }      
+}
+{% endfor %}
+
