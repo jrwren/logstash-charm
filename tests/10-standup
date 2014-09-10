@@ -5,11 +5,9 @@ import amulet
 d = amulet.Deployment()
 
 d.add('logstash')
-#d.add('cs:~clint-fewbar/precise/collectd-4')
-d.add('cs:precise/elasticsearch-4')
+#d.add('cs:trusty/elasticsearch-4')
 
-#d.relate('logstash:input-collectd', 'collectd')
-d.relate('logstash:output-es', 'elasticsearch')
+#d.relate('logstash:output-es', 'elasticsearch')
 
 # Don't forget to expose using d.expose(service)
 
