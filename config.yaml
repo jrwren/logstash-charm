@@ -1,0 +1,11 @@
+options:
+  logstash_url:
+    type: string
+    default: "https://download.elasticsearch.org/logstash/logstash/logstash-1.4.1.tar.gz"
+    description: |
+      https url where you would like to fetch LOGSTASH from.
+  logstash_hash:
+    type: string
+    default: "834599d28ce50012c221ece7a6783c5943221e36"
+    description: |
+      The url for the key for the apt-repository.
