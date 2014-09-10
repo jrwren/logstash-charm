@@ -16,8 +16,13 @@
 PYTHON := /usr/bin/env python
 
 unittest:
-	tests/10-unit.test
+	@echo Starting Tests	
+	.venv/bin/nosetests --nologcapture unit_tests	
 
+lint:
+	@flake8 --exclude hooks/charmhelpers hooks
+	@flake8 --exclude hooks/charmhelpers unit_tests
+	@charm proof
 sync:
 	@mkdir -p bin
 	@bzr cat lp:charm-helpers/tools/charm_helpers_sync/charm_helpers_sync.py > bin/charm_helpers_sync.py	
@@ -26,4 +31,9 @@ sync:
 clean:
 	@find . -name \*.pyc -delete
 	@find . -name '*.bak' -delete
+	@rm -rf .venv
 
+.venv:
+	sudo apt-get install python-virtualenv python-apt
+	virtualenv .venv --system-site-packages
+	.venv/bin/pip install nose pyyaml mock -I
