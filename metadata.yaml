@@ -3,19 +3,13 @@ summary: "Logstash"
 maintainer: "Kapil Thangavelu <kapil.foss@gmail.com>"
 description: |
   logstash is a tool for managing events and logs. You can use it to collect logs, parse them,
-  and store them for later use (like, for searching). Speaking of searching, logstash comes 
+  and store them for later use (like, for searching). Speaking of searching, logstash comes
   with a web interface for searching and drilling into all of your logs.
 categories:
   - applications
 requires:
   output-es:
     interface: elasticsearch
-#  output-amqp:
-#    interface: rabbitmq
-#  input-redis:
-#    interface: redis
 provides:
   input-collectd:
     interface: collectd-network
-#  input-graphite:
-#    interface: carbonpickle
