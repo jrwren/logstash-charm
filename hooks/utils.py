@@ -2,93 +2,193 @@
 import os
 import subprocess
 import sys
-import shlex
-import shutil
+import urllib2
 
-from charmhelpers.core.host import service, adduser, mkdir, chownr
-from charmhelpers.core.fetch import apt_update, apt_install
-from charmhelpers.core.fetch.archiveurl import download_and_validate
-from charmhelpers.core.hookenv import (
-    Hooks,
-    relation_get,
-    relation_ids,
-    relation_list,
-    open_port,
-    close_port,
-    config,
+from charmhelpers import fetch
+from charmhelpers.core import (
+    hookenv,
+    host,
 )
+from charmhelpers.contrib.charmsupport import nrpe
 
-# Constants
+APT_SOURCES_LIST = '/etc/apt/sources.list.d/logstash.list'
+SERVICE = 'logstash'
+APT_REPOSITORY_KEY = 'apt-repository'
+APT_KEY_URL_KEY = 'apt-key-url'
+NAGIOS_CONTEXT_KEY = 'nagios_context'
+ES_RELATION = 'elasticsearch'
+TCP_LISTEN_PORTS_KEY = 'tcp-listen-ports'
 
-LS_USER = 'logstash'
-LS_URL = config()['logstash_url']
-LS_FNAME = os.path.basename(LS_URL)
-LS_DIR = os.path.join(os.path.sep, "opt", "logstash")
-LS_CONF_DIR = os.path.join(os.path.sep, "etc", "logstash.d")
-LS_LOG = os.path.join(os.path.sep, "var", "log", "logstash.log")
+hooks = hookenv.Hooks()
+log = hookenv.log
+relations = hookenv.relations()
+config = hookenv.config()
+config.implicit_save = False
 
-hooks = Hooks()
-cfg = config()
 
 @hooks.hook('install')
 def install():
-    packages = ['openjdk-7-jre-headless', 'python-jinja2']
-    apt_update()
-    apt_install(packages, FATAL=True)
+    log('install')
+    if ensure_apt_repo():
+        fetch.apt_update()
+        fetch.apt_install(SERVICE, fatal=True)
 
-    uid = adduser(LS_USER).pw_uid
-
-    mkdir(LS_DIR, LS_USER)
-    mkdir(LS_CONF_DIR, LS_USER)
-
-    # touch the log
-    with open(LS_LOG, 'a'):
-        os.utime(LS_LOG, None)
-    os.chown(LS_LOG, uid)
-
-    conf_src = os.path.join(os.environ['CHARM_DIR'], 'files', 'logstash.conf')
-    conf_dest = os.path.join(os.path.sep, 'etc', 'init', 'logstash.conf')
-    shutil.copyfile(conf_src, conf_dest)
 
 @hooks.hook('config-changed')
 def config_changed():
-
-    ls_tgz = os.path.join(os.environ['CHARM_DIR'], 'files', LS_FNAME)
-
-    # sorry if you reboot the server, we're fetching it again unless
-    # you fatpacked the charm. YOLO DORITOS
-    if not os.path.exists(ls_tgz):
-        link = cfg['logstash_url']
-        sum = cfg['logstash_sum']
-        tpath = download_and_validate(link, sum)
-
-        cmd = 'tar -xvz --strip-components=1 -C /opt/logstash -f {}'
-        subprocess.check_call(shlex.split(cmd.format(tpath)))
-
-    service('restart', 'logstash-indexer')
-
+    for key in config:
+        if config.changed(key):
+            msg = "config['{}'] changed from {} to {}".format(
+                key, config.previous(key), config[key])
+            print(msg)
+            log(msg)
+    if config.changed(APT_KEY_URL_KEY) and config[APT_KEY_URL_KEY]:
+        apt_key_add(config[APT_KEY_URL_KEY].split())
+    if config.changed(APT_SOURCES_LIST) and config[APT_SOURCES_LIST]:
+        install()
+    if config.changed(NAGIOS_CONTEXT_KEY):
+        update_nrpe_checks()
+    write_config_and_restart()
+    config.save()
 
 
 @hooks.hook('start')
 def start():
-  open_port(9300)
+    host.service_start(SERVICE)
+
 
 @hooks.hook('stop')
 def stop():
-  close_port(9300)
+    host.service_stop(SERVICE)
 
-@hooks.hook('client-relation-joined')
-def client_joined():
-    # Only supports a single scale unit (no scale-out of logstash-indexer)
-    rid = relation_ids('client')[0]
-    unit = relation_list(rid)[0]
 
-    relation_get('host', rid, unit)
+@hooks.hook('upgrade-charm')
+def upgrade_charm():
+    log('upgrading charm')
 
-    # write_file(
-    #     '/etc/logstash.d/70-juju-outputs.conf',
-    #     'outputs.conf.template',
-    #     dict(elasticsearch=outputs_es))
+
+def write_config_file():
+    es_host, es_port = get_es_endpoint()
+    if not (es_host and es_port):
+        try:
+            os.unlink('/etc/logstash/conf.d/output-elasticsearch.conf')
+        except:
+            pass
+        return False
+    host.write_file('/etc/logstash/conf.d/output-elasticsearch.conf',
+                    r'''
+output {{
+  elasticsearch {{ host => "{0}"
+                  port => "{1}"
+                  protocol => "http"
+  }}
+}}
+'''.format(es_host, es_port))
+    return True
+
+
+def write_config_and_restart():
+    if write_config_file():
+        host.service_restart(SERVICE)
+
+
+def relation_param(relation, name, default=None):
+    for rel in relations.get(relation, {}).itervalues():
+        for unit in rel.itervalues():
+            if name in unit:
+                return unit.get(name, default)
+    return default
+
+
+def get_es_endpoint():
+    return (relation_param(ES_RELATION, 'host'),
+            relation_param(ES_RELATION, 'port')
+            )
+
+
+def has_source_list():
+    if not os.path.exists(APT_SOURCES_LIST):
+        return False
+    return (
+        open(APT_SOURCES_LIST, 'r').read().strip()
+        in config[APT_REPOSITORY_KEY]
+    )
+
+
+def ensure_apt_repo():
+    if not has_source_list():
+        apt_key_add(APT_KEY_URL_KEY)
+        add_source_list()
+        return True
+    return False
+
+
+def apt_key_add(keyurl):
+    r = urllib2.urlopen(keyurl)
+    data = r.read()
+    PIPE = subprocess.PIPE
+    proc = subprocess.Popen(('apt-key', 'add', '-'),
+                            stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    out, err = proc.communicate(input=data)
+    if out != 'OK\n' or err != '':
+        log("error running apt-key add:" + out + err)
+
+
+def add_source_list():
+    host.write_file(APT_SOURCES_LIST, config[APT_REPOSITORY_KEY] + "\n")
+
+
+def get_next_port(ports):
+    if ports:
+        return max(ports) + 1
+    return 11001
+
+
+@hooks.hook('tcp-input-relation-joined')
+def tcp_input_relation_joined():
+    relation_id = hookenv.relation_id()
+    portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
+    next_port = get_next_port([port for rel, port in portmap.iteritems()])
+    portmap[relation_id] = next_port
+    log("tcp-input-relation-joined: using {} and port {}".format(
+        relation_id, next_port))
+    config[TCP_LISTEN_PORTS_KEY] = portmap
+
+
+def get_listen_ports():
+    if config.get(TCP_LISTEN_PORTS_KEY, False):
+        return [port for rel, port in config[TCP_LISTEN_PORTS_KEY].iteritems()]
+    return []
+
+
+@hooks.hook('nrpe-external-master-relation-changed')
+@hooks.hook('local-monitors-relation-changed')
+def update_nrpe_checks():
+    listen_ports = get_listen_ports()
+    nrpe_compat = nrpe.NRPE()
+    ip_address = hookenv.unit_private_ip()
+    for port in listen_ports:
+        nrpe_compat.add_check(
+            shortname=SERVICE,
+            description='Check port listening',
+            check_cmd='check_tcp -H {} -p {}'.format(
+                ip_address, port))
+    nrpe_compat.write()
+
+
+@hooks.hook('elasticsearch-relation-departed')
+@hooks.hook('elasticsearch-relation-broken')
+def elasticsearch_relation_hooks_gone():
+    log("elasticsearch-relation-(departed|broken)")
+    write_config_and_restart()
+
+
+@hooks.hook('elasticsearch-relation-joined')
+@hooks.hook('elasticsearch-relation-changed')
+def elasticsearch_relation_hooks():
+    log("elasticsearch-relation-(joined|changed)")
+    write_config_and_restart()
+
 
 if __name__ == "__main__":
     # execute a hook based on the name the program is called by

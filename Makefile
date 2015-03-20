@@ -1,5 +1,5 @@
-# This file is part of the mongodb charm.
-# Copyright (C) 2013 Canonical Ltd.
+# This file is part of the logstash charm.
+# Copyright (C) 2013-2015 Canonical Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License version 3, as published by
@@ -14,26 +14,29 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 PYTHON := /usr/bin/env python
+TESTS = $(shell find -L tests -type f -executable | sort)
+
+.PHONY: $(TESTS) clean check deploytest sync test unittest
 
 unittest:
-	@echo Starting Tests	
-	.venv/bin/nosetests --nologcapture unit_tests	
+	nosetests -v --with-coverage --cover-package hooks hooks
 
-lint:
-	@flake8 --exclude hooks/charmhelpers hooks
-	@flake8 --exclude hooks/charmhelpers unit_tests
-	@charm proof
+check:
+	flake8 --exclude hooks/charmhelpers hooks
+	charm proof
+
+test: check unittest
+
 sync:
-	@mkdir -p bin
-	@bzr cat lp:charm-helpers/tools/charm_helpers_sync/charm_helpers_sync.py > bin/charm_helpers_sync.py	
-	@$(PYTHON) bin/charm_helpers_sync.py -c charm-helpers-sync.yaml
+	mkdir -p bin
+	bzr cat lp:charm-helpers/tools/charm_helpers_sync/charm_helpers_sync.py > bin/charm_helpers_sync.py
+	$(PYTHON) bin/charm_helpers_sync.py -c charm-helpers-sync.yaml
 
 clean:
-	@find . -name \*.pyc -delete
-	@find . -name '*.bak' -delete
-	@rm -rf .venv
+	find . -name \*.pyc -delete
+	find . -name '*.bak' -delete
 
-.venv:
-	sudo apt-get install python-virtualenv python-apt
-	virtualenv .venv --system-site-packages
-	.venv/bin/pip install nose pyyaml mock -I
+$(TESTS):
+	$@
+
+deploytest: $(TESTS)

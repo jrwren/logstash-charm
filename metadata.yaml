@@ -1,15 +1,15 @@
 name: logstash
 summary: "Logstash"
-maintainer: "Kapil Thangavelu <kapil.foss@gmail.com>"
+maintainer: "Jay Wren <jay.wren@canonical.com>"
 description: |
   logstash is a tool for managing events and logs. You can use it to collect logs, parse them,
   and store them for later use (like, for searching). Speaking of searching, logstash comes
   with a web interface for searching and drilling into all of your logs.
-categories:
+tags:
   - applications
 requires:
-  output-es:
+  elasticsearch:
     interface: elasticsearch
 provides:
-  input-collectd:
-    interface: collectd-network
+  input-tcp:
+    interface: logstash-tcp

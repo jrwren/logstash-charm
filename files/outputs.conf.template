@@ -1,7 +1,6 @@
-{% for es in elasticsearch %}
 output {
    elasticsearch {
-    cluster => {{ es.cluster_name }}
-  }  
+    protocol => "http"
+    host => {{ es_host }}
+  }
 }
-{% endfor %}
