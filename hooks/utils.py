@@ -43,8 +43,8 @@ def config_changed():
             print(msg)
             log(msg)
     if config.changed(APT_KEY_URL_KEY) and config[APT_KEY_URL_KEY]:
-        apt_key_add(config[APT_KEY_URL_KEY].split())
-    if config.changed(APT_SOURCES_LIST) and config[APT_SOURCES_LIST]:
+        apt_key_add(config[APT_KEY_URL_KEY])
+    if config.changed(APT_REPOSITORY_KEY) and config[APT_REPOSITORY_KEY]:
         install()
     if config.changed(NAGIOS_CONTEXT_KEY):
         update_nrpe_checks()
@@ -117,21 +117,24 @@ def has_source_list():
 
 def ensure_apt_repo():
     if not has_source_list():
-        apt_key_add(APT_KEY_URL_KEY)
+        apt_key_add(config[APT_KEY_URL_KEY])
         add_source_list()
         return True
     return False
 
 
 def apt_key_add(keyurl):
-    r = urllib2.urlopen(keyurl)
-    data = r.read()
-    PIPE = subprocess.PIPE
-    proc = subprocess.Popen(('apt-key', 'add', '-'),
-                            stdin=PIPE, stdout=PIPE, stderr=PIPE)
-    out, err = proc.communicate(input=data)
-    if out != 'OK\n' or err != '':
-        log("error running apt-key add:" + out + err)
+    try:
+        r = urllib2.urlopen(keyurl)
+        data = r.read()
+        PIPE = subprocess.PIPE
+        proc = subprocess.Popen(('apt-key', 'add', '-'),
+                                stdin=PIPE, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate(input=data)
+        if out != 'OK\n' or err != '':
+            log("error running apt-key add:" + out + err)
+    except Exception as e:
+        log("error running apt-key add:" + str(e))
 
 
 def add_source_list():

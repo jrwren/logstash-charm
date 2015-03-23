@@ -92,6 +92,7 @@ class TestConfigChanged(unittest.TestCase):
         config._prev_dict[utils.APT_KEY_URL_KEY] = None
         utils.config_changed()
         self.assertTrue(utils.apt_key_add.called)
+        self.assertEqual('foo', utils.apt_key_add.call_args[0][0])
 
     def test_password_writes_config_and_restarts(self):
         config['password'] = ''
@@ -104,14 +105,14 @@ class TestConfigChanged(unittest.TestCase):
     def test_source_restarts_if_es_relation(self):
         relations['elasticsearch'] = {1: {'elasticsearch/0': {
             'host': 'eshost', 'port': 'esport'}}}
-        config[utils.APT_SOURCES_LIST] = 'master'
-        config._prev_dict[utils.APT_SOURCES_LIST] = None
+        config[utils.APT_REPOSITORY_KEY] = 'master'
+        config._prev_dict[utils.APT_REPOSITORY_KEY] = None
         utils.config_changed()
         self.assertEqual(host.service.call_count, 1)
 
     def test_source_no_restarts_if_no_es_relation(self):
-        config[utils.APT_SOURCES_LIST] = 'master'
-        config._prev_dict[utils.APT_SOURCES_LIST] = None
+        config[utils.APT_REPOSITORY_KEY] = 'master'
+        config._prev_dict[utils.APT_REPOSITORY_KEY] = None
         utils.config_changed()
         self.assertEqual(host.service.call_count, 0)
 
@@ -188,10 +189,10 @@ class TestNRPERelation(unittest.TestCase):
                 "".format(hookenv.unit_private_ip()))
 
     def test_nrpe_is_empty_if_no_tcp_relation(self):
-        relations.clear()
+        config[utils.TCP_LISTEN_PORTS_KEY] = {}
         with mock.patch('charmhelpers.contrib.charmsupport.nrpe.NRPE') as nrpe:
             utils.update_nrpe_checks()
-            self.assertFalse(nrpe.called)
+            self.assertFalse(nrpe.add_check.called)
 
 
 @mock.patch('urllib2.urlopen', mock.Mock())
