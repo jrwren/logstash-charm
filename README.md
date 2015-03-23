@@ -16,9 +16,9 @@ Outputs :
 example 1 - NOOP ELK
 =====================================
 
-    juju deploy --repository=logstash local:trusty/logstash
-    juju deploy --repository=logstash local:trusty/elasticsearch
-    juju deploy --repository=logstash local:trusty/kibana
+    juju deploy local:trusty/logstash
+    juju deploy local:trusty/elasticsearch
+    juju deploy local:trusty/kibana
     juju add-relation kibana elasticsearch:rest
     juju add-relation logstash elasticsearch
     juju expose kibana
@@ -28,11 +28,13 @@ http://ip-of-kibana
 example 2 - something logging
 =====================================
 
-    juju deploy --repository=logstash local:trusty/logstash
-    juju deploy --repository=logstash local:trusty/elasticsearch
-    juju deploy --repository=logstash local:trusty/kibana
+    juju deploy local:trusty/logstash
+    juju deploy local:trusty/elasticsearch
+    juju deploy local:trusty/kibana
     juju add-relation kibana elasticsearch:rest
     juju add-relation logstash elasticsearch
+    juju deploy local:trusty/somecharmwhichlogs
+    juju add-relation logstash somecharmwhichlogs
     juju expose kibana
 
 http://ip-of-kibana

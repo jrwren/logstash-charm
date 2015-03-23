@@ -84,6 +84,14 @@ output {{
   }}
 }}
 '''.format(es_host, es_port))
+    inputconf = 'input {'
+    for id, port in config.get(TCP_LISTEN_PORTS_KEY, {}).iteritems():
+        inputconf += r'''  tcp {{
+            port => {}
+            tag => "{}"
+        }}'''.format(port, id)
+    inputconf += '}'
+    host.write_file('/etc/logstash/conf.d/input-elasticsearch.conf', inputconf)
     return True
 
 
@@ -101,7 +109,7 @@ def relation_param(relation, name, default=None):
                     relation, name, default, param))
                 return param
     log("relation_param({}, {}, {}) => {} ## relations: {}".format(
-        relation, name, default, param, str(relations)))
+        relation, name, default, default, str(relations)))
     return default
 
 
@@ -153,14 +161,36 @@ def get_next_port(ports):
 
 
 @hooks.hook('tcp-input-relation-joined')
+@hooks.hook('tcp-input-relation-changed')
 def tcp_input_relation_joined():
     relation_id = hookenv.relation_id()
+    if not relation_id:
+        log("tcp-input-relation-joined/changed: no relation_id")
+        print("tcp-input-relation-joined/changed: no relation_id")
+        return
     portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
     next_port = get_next_port([port for rel, port in portmap.iteritems()])
     portmap[relation_id] = next_port
-    log("tcp-input-relation-joined: using {} and port {}".format(
+    log("tcp-input-relation-joined/changed: using {} and port {}".format(
         relation_id, next_port))
     config[TCP_LISTEN_PORTS_KEY] = portmap
+    write_config_and_restart()
+
+
+@hooks.hook('tcp-input-relation-departed')
+def tcp_input_relation_departed():
+    relation_id = hookenv.relation_id()
+    if not relation_id:
+        log("tcp-input-relation-departed: no relation_id")
+        print("tcp-input-relation-departed: no relation_id")
+        return
+    portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
+    if relation_id in portmap:
+        del portmap[relation_id]
+    config[TCP_LISTEN_PORTS_KEY] = portmap
+    write_config_and_restart()
+    log("tcp-input-relation-departed: using {} and port {}".format(
+        relation_id, str(portmap)))
 
 
 def get_listen_ports():

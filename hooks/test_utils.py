@@ -23,9 +23,8 @@ config.save = mock.MagicMock()
 hookenv.config = mock.MagicMock(return_value=config)
 hookenv.log = mock.MagicMock()
 hookenv.open_port = mock.MagicMock()
-hookenv.relation_id = mock.MagicMock()
-hookenv.relation_set = mock.MagicMock()
 relations = {}
+hookenv.relation_set = mock.MagicMock()
 hookenv.relations = mock.MagicMock(return_value=relations)
 hookenv.unit_get = mock.MagicMock()
 
@@ -131,9 +130,9 @@ class TestWriteConfigFile(unittest.TestCase):
         self.assertEqual(utils.write_config_file(), True)
         self.assertTrue(host.write_file.called)
         self.assertEqual(
-            host.write_file.call_args[0][0],
+            host.write_file.call_args_list[0][0][0],
             '/etc/logstash/conf.d/output-elasticsearch.conf')
-        data = host.write_file.call_args[0][1]
+        data = host.write_file.call_args_list[0][0][1]
         self.assertTrue(None is not re.search(
             r'''output\s*\{\s*
                 elasticsearch\s*\{\s*host\s*=>\s*"eshost"\s*
@@ -179,7 +178,9 @@ class TestNRPERelation(unittest.TestCase):
     def test_nrpe_relation_updates_config(self):
         relations['tcp-yourservice'] = {2: {'yourservice/0': {
             'logstash-grock': 'foo'}}}
-        utils.tcp_input_relation_joined()
+        with mock.patch('charmhelpers.core.hookenv.relation_id') as rel_id:
+            rel_id.return_value = '2'
+            utils.tcp_input_relation_joined()
         with mock.patch('charmhelpers.contrib.charmsupport.nrpe.NRPE') as nrpe:
             utils.update_nrpe_checks()
             nrpe().add_check.assert_called_once_with(
@@ -216,3 +217,36 @@ class TestElasticsearchRelation(unittest.TestCase):
             mock_write_config_file.return_value = (True, True)
             utils.elasticsearch_relation_hooks_gone()
             self.assertTrue(mock_write_config_file.called)
+
+
+class TestInputTcpRelation(unittest.TestCase):
+
+    def setUp(self):
+        relations['whatever'] = {2: {'whatever/0': {
+            'files': 'type grokfilte'}}}
+
+    def test_tcp_input_relation_does_not_raise(self):
+        utils.tcp_input_relation_joined()
+
+    def test_tcp_input_relation_write_config_file(self):
+        with mock.patch('charmhelpers.core.hookenv.relation_id') as rel_id:
+            rel_id.return_value = '2'
+            host.write_file.reset_mock()
+            utils.tcp_input_relation_joined()
+            self.assertTrue(host.write_file.called)
+            contents = host.write_file.call_args_list[1][0][1]
+            self.assertTrue(None is not re.search(
+                r'''input \s* { \s* tcp \s* {\s*
+                port \s* => \s* 11001 \s*
+                tag \s* => \s* "2" \s*
+            }}''', contents, re.VERBOSE | re.MULTILINE), contents)
+
+    def test_tcp_input_relation_write_config_on_departed(self):
+        with mock.patch('charmhelpers.core.hookenv.relation_id') as rel_id:
+            rel_id.return_value = '2'
+            utils.tcp_input_relation_joined()
+            host.write_file.reset_mock()
+            utils.tcp_input_relation_departed()
+        self.assertTrue(host.write_file.called)
+        contents = host.write_file.call_args_list[1][0][1]
+        self.assertEquals(r'input {}', contents)
