@@ -96,13 +96,18 @@ def relation_param(relation, name, default=None):
     for rel in relations.get(relation, {}).itervalues():
         for unit in rel.itervalues():
             if name in unit:
-                return unit.get(name, default)
+                param = unit.get(name, default)
+                log("relation_param({}, {}, {}) => {}".format(
+                    relation, name, default, param))
+                return param
+    log("relation_param({}, {}, {}) => {} ## relations: {}".format(
+        relation, name, default, param, str(relations)))
     return default
 
 
 def get_es_endpoint():
     return (relation_param(ES_RELATION, 'host'),
-            relation_param(ES_RELATION, 'port')
+            relation_param(ES_RELATION, 'port', '9200')
             )
 
 
