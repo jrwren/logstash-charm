@@ -26,6 +26,7 @@ hookenv.open_port = mock.MagicMock()
 relations = {}
 hookenv.relation_set = mock.MagicMock()
 hookenv.relations = mock.MagicMock(return_value=relations)
+hookenv.relation_ids = mock.MagicMock()
 hookenv.unit_get = mock.MagicMock()
 
 from charmhelpers import fetch

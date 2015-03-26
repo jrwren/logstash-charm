@@ -9,6 +9,7 @@ from charmhelpers.core import (
     hookenv,
     host,
 )
+from charmhelpers.core.services import RelationContext
 from charmhelpers.contrib.charmsupport import nrpe
 
 APT_SOURCES_LIST = '/etc/apt/sources.list.d/logstash.list'
@@ -88,7 +89,7 @@ output {{
     for id, port in config.get(TCP_LISTEN_PORTS_KEY, {}).iteritems():
         inputconf += r'''  tcp {{
             port => {}
-            tag => "{}"
+            tags => ["{}"]
         }}'''.format(port, id)
     inputconf += '}'
     host.write_file('/etc/logstash/conf.d/input-elasticsearch.conf', inputconf)
@@ -160,36 +161,38 @@ def get_next_port(ports):
     return 11001
 
 
-@hooks.hook('tcp-input-relation-joined')
-@hooks.hook('tcp-input-relation-changed')
+@hooks.hook('input-tcp-relation-joined')
+@hooks.hook('input-tcp-relation-changed')
 def tcp_input_relation_joined():
     relation_id = hookenv.relation_id()
     if not relation_id:
-        log("tcp-input-relation-joined/changed: no relation_id")
-        print("tcp-input-relation-joined/changed: no relation_id")
+        log("input-tcp-relation-joined/changed: no relation_id")
+        print("input-tcp-relation-joined/changed: no relation_id")
         return
     portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
     next_port = get_next_port([port for rel, port in portmap.iteritems()])
     portmap[relation_id] = next_port
-    log("tcp-input-relation-joined/changed: using {} and port {}".format(
+    log("input-tcp-relation-joined/changed: using {} and port {}".format(
         relation_id, next_port))
     config[TCP_LISTEN_PORTS_KEY] = portmap
     write_config_and_restart()
 
 
-@hooks.hook('tcp-input-relation-departed')
+@hooks.hook('input-tcp-relation-departed')
 def tcp_input_relation_departed():
+    lsr = LogstashTcpRelation()
+    log("LogstashTcpRelation: {}".format(lsr))
     relation_id = hookenv.relation_id()
     if not relation_id:
-        log("tcp-input-relation-departed: no relation_id")
-        print("tcp-input-relation-departed: no relation_id")
+        log("input-tcp-relation-departed: no relation_id")
+        print("input-tcp-relation-departed: no relation_id")
         return
     portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
     if relation_id in portmap:
         del portmap[relation_id]
     config[TCP_LISTEN_PORTS_KEY] = portmap
     write_config_and_restart()
-    log("tcp-input-relation-departed: using {} and port {}".format(
+    log("input-tcp-relation-departed: using {} and port {}".format(
         relation_id, str(portmap)))
 
 
@@ -226,6 +229,12 @@ def elasticsearch_relation_hooks_gone():
 def elasticsearch_relation_hooks():
     log("elasticsearch-relation-(joined|changed)")
     write_config_and_restart()
+
+
+class LogstashTcpRelation(RelationContext):
+    name = 'logstash-tcp'
+    interface = 'logstash-tcp'
+    required_keys = ['files']
 
 
 if __name__ == "__main__":
