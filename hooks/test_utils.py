@@ -10,7 +10,7 @@ import mock
 os.environ['CHARM_DIR'] = os.path.join(os.path.dirname(__file__), '..')
 sys.path.insert(0, os.path.join(os.environ['CHARM_DIR'], 'lib'))
 
-from charmhelpers.core import hookenv
+from charmhelpers.core import hookenv, services
 
 hookenv.close_port = mock.MagicMock()
 config = hookenv.Config({
@@ -176,12 +176,20 @@ class TestStop(unittest.TestCase):
 
 class TestNRPERelation(unittest.TestCase):
 
+    def setUp(self):
+        self.phookenv = mock.patch.object(services.helpers, 'hookenv')
+        self.mhookenv = self.phookenv.start()
+        self.mhookenv.relation_ids.return_value = ['baz']
+        self.mhookenv.related_units.side_effect = lambda i: [i + '/0']
+        self.mhookenv.relation_get.side_effect = [{'types': '1'},
+                                                  ]
+        self.mhookenv.reset_mock()
+
+    def tearDown(self):
+        self.phookenv.stop()
+
     def test_nrpe_relation_updates_config(self):
-        relations['tcp-yourservice'] = {2: {'yourservice/0': {
-            'logstash-grock': 'foo'}}}
-        with mock.patch('charmhelpers.core.hookenv.relation_id') as rel_id:
-            rel_id.return_value = '2'
-            utils.tcp_input_relation_joined()
+        utils.tcp_input_relation_joined()
         with mock.patch('charmhelpers.contrib.charmsupport.nrpe.NRPE') as nrpe:
             utils.update_nrpe_checks()
             nrpe().add_check.assert_called_once_with(
@@ -223,31 +231,69 @@ class TestElasticsearchRelation(unittest.TestCase):
 class TestInputTcpRelation(unittest.TestCase):
 
     def setUp(self):
-        relations['whatever'] = {2: {'whatever/0': {
-            'files': 'type grokfilte'}}}
+        self.phookenv = mock.patch.object(services.helpers, 'hookenv')
+        self.mhookenv = self.phookenv.start()
+        self.mhookenv.relation_ids.return_value = ['baz']
+        self.mhookenv.related_units.side_effect = lambda i: [i + '/0']
+        self.mhookenv.relation_get.side_effect = [{'groks': 'a b',
+                                                   'types': 'c d'},
+                                                  {'groks': 'a b',
+                                                   'types': 'c d'},
+                                                  ]
+        self.mhookenv.reset_mock()
+        config[utils.TCP_LISTEN_PORTS_KEY] = {}
+
+    def tearDown(self):
+        self.phookenv.stop()
 
     def test_tcp_input_relation_does_not_raise(self):
+        self.mhookenv.related_units.return_value = []
         utils.tcp_input_relation_joined()
 
-    def test_tcp_input_relation_write_config_file(self):
-        with mock.patch('charmhelpers.core.hookenv.relation_id') as rel_id:
-            rel_id.return_value = '2'
-            host.write_file.reset_mock()
-            utils.tcp_input_relation_joined()
-            self.assertTrue(host.write_file.called)
-            contents = host.write_file.call_args_list[1][0][1]
-            self.assertTrue(None is not re.search(
-                r'''input \s* { \s* tcp \s* {\s*
-                port \s* => \s* 11001 \s*
-                tag \s* => \s* "2" \s*
-            }}''', contents, re.VERBOSE | re.MULTILINE), contents)
+    def test_tcp_input_relation_one_port_write_config_file(self):
+        self.mhookenv.relation_get.side_effect = [{'groks': 'a',
+                                                   'types': 'c'}]
+        host.write_file.reset_mock()
+        utils.tcp_input_relation_joined()
+        self.assertTrue(host.write_file.called)
+        contents = host.write_file.call_args_list[1][0][1]
+        self.assertTrue(None is not re.search(
+            r'''input \s* { \s* tcp \s* {\s*
+            port \s* => \s* 11001 \s*
+            type \s* => \s* "c" \s*
+        }\s*
+        }''', contents, re.VERBOSE | re.MULTILINE), contents)
 
     def test_tcp_input_relation_write_config_on_departed(self):
-        with mock.patch('charmhelpers.core.hookenv.relation_id') as rel_id:
-            rel_id.return_value = '2'
-            utils.tcp_input_relation_joined()
-            host.write_file.reset_mock()
-            utils.tcp_input_relation_departed()
+        utils.tcp_input_relation_joined()
+        host.write_file.reset_mock()
+        utils.tcp_input_relation_departed()
         self.assertTrue(host.write_file.called)
         contents = host.write_file.call_args_list[1][0][1]
         self.assertEquals(r'input {}', contents)
+
+    def test_tcp_input_relation_sets_ports(self):
+        utils.tcp_input_relation_joined()
+        self.assertTrue(hookenv.relation_set.called)
+        print hookenv.relation_set.call_args
+        self.assertEquals({'ports': '11001 11002'},
+                          hookenv.relation_set.call_args_list[0][1])
+
+    def test_tcp_input_relation_sets_many_ports(self):
+        x = utils.LogstashTcpRelation()
+        print x
+        self.assertEquals("c d", x['input-tcp'][0]['types'])
+        host.write_file.reset_mock()
+        utils.tcp_input_relation_joined()
+        self.assertTrue(host.write_file.called)
+        contents = host.write_file.call_args_list[1][0][1]
+        self.assertTrue(None is not re.search(
+            r'''input \s* { \s* tcp \s* {\s*
+            port \s* => \s* 11001 \s*
+            type \s* => \s* "c" \s*
+        }\s*
+            tcp \s* { \s*
+            port \s* => \s* 11002 \s*
+            type \s* => \s* "d" \s*
+        }\s*
+        }''', contents, re.VERBOSE | re.MULTILINE), contents)

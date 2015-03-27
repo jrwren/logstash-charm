@@ -86,11 +86,11 @@ output {{
 }}
 '''.format(es_host, es_port))
     inputconf = 'input {'
-    for id, port in config.get(TCP_LISTEN_PORTS_KEY, {}).iteritems():
+    for type, port in config.get(TCP_LISTEN_PORTS_KEY, {}).iteritems():
         inputconf += r'''  tcp {{
             port => {}
-            tags => ["{}"]
-        }}'''.format(port, id)
+            type => "{}"
+        }}'''.format(port, type)
     inputconf += '}'
     host.write_file('/etc/logstash/conf.d/input-elasticsearch.conf', inputconf)
     return True
@@ -164,36 +164,55 @@ def get_next_port(ports):
 @hooks.hook('input-tcp-relation-joined')
 @hooks.hook('input-tcp-relation-changed')
 def tcp_input_relation_joined():
-    relation_id = hookenv.relation_id()
-    if not relation_id:
-        log("input-tcp-relation-joined/changed: no relation_id")
-        print("input-tcp-relation-joined/changed: no relation_id")
+    lsr = LogstashTcpRelation()
+    log("LogstashTcpRelation: {}".format(lsr))
+    if 'input-tcp' not in lsr:
         return
+    r = lsr['input-tcp']
+    if not r or 'types' not in r[0]:
+        return
+    types = r[0]['types'].split()
+
     portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
-    next_port = get_next_port([port for rel, port in portmap.iteritems()])
-    portmap[relation_id] = next_port
-    log("input-tcp-relation-joined/changed: using {} and port {}".format(
-        relation_id, next_port))
+    for type in types:
+        next_port = get_next_port([port for rel, port in portmap.iteritems()])
+        portmap[type] = next_port
+    log("input-tcp-relation-joined/changed: using {} ".format(
+        portmap))
     config[TCP_LISTEN_PORTS_KEY] = portmap
+    if 'groks' in r[0]:
+        groks = r[0]['groks'].split()
+        config['grokmap'] = zip(types, groks)
+    hookenv.relation_set(ports=' '.join(
+        [str(port) for _, port in portmap.iteritems()]))
     write_config_and_restart()
 
 
 @hooks.hook('input-tcp-relation-departed')
+@hooks.hook('input-tcp-relation-broken')
 def tcp_input_relation_departed():
     lsr = LogstashTcpRelation()
     log("LogstashTcpRelation: {}".format(lsr))
-    relation_id = hookenv.relation_id()
-    if not relation_id:
-        log("input-tcp-relation-departed: no relation_id")
-        print("input-tcp-relation-departed: no relation_id")
+    print("LogstashTcpRelation: {}".format(lsr))
+    r = lsr['input-tcp']
+    if not r or 'types' not in r[0]:
         return
+    # Assume that each unit of a relation sends identical values.
+    # This should be true because all units have the same charm config.
+    types = r[0]['types'].split()
+
     portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
-    if relation_id in portmap:
-        del portmap[relation_id]
+    for type in types:
+        print "found:"+type
+        if type in portmap:
+            print "removing "+type
+            del portmap[type]
     config[TCP_LISTEN_PORTS_KEY] = portmap
     write_config_and_restart()
-    log("input-tcp-relation-departed: using {} and port {}".format(
-        relation_id, str(portmap)))
+    log("input-tcp-relation-departed: new ports {}".format(
+        str(portmap)))
+    print("input-tcp-relation-departed: new ports {}".format(
+        str(portmap)))
 
 
 def get_listen_ports():
@@ -232,9 +251,9 @@ def elasticsearch_relation_hooks():
 
 
 class LogstashTcpRelation(RelationContext):
-    name = 'logstash-tcp'
+    name = 'input-tcp'
     interface = 'logstash-tcp'
-    required_keys = ['files']
+    required_keys = ['types']
 
 
 if __name__ == "__main__":
