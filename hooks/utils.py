@@ -180,6 +180,7 @@ def tcp_input_relation_joined():
     log("input-tcp-relation-joined/changed: using {} ".format(
         portmap))
     config[TCP_LISTEN_PORTS_KEY] = portmap
+    config.save()
     if 'groks' in r[0]:
         groks = r[0]['groks'].split()
         config['grokmap'] = zip(types, groks)
