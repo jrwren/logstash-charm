@@ -30,7 +30,8 @@ config.implicit_save = False
 @hooks.hook('install')
 def install():
     log('install')
-    if ensure_apt_repo():
+    ensure_apt_repo()
+    if not os.path.exists('/opt/logstash/bin/logstash'):
         fetch.apt_update()
         fetch.apt_install(SERVICE, fatal=True)
 
@@ -61,6 +62,7 @@ def start():
 @hooks.hook('stop')
 def stop():
     host.service_stop(SERVICE)
+    subprocess.call(["update-rc.d", SERVICE, "disable"])
 
 
 @hooks.hook('upgrade-charm')

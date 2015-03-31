@@ -61,11 +61,12 @@ class TestInstall(unittest.TestCase):
                 fetch.apt_install.call_args[0][0],
                 utils.SERVICE)
 
-    def test_no_install_packages_if_source_list(self):
+    def test_no_install_packages_if_file_exists(self):
         fetch.apt_install.reset_mock()
         with mock.patch('utils.has_source_list', return_value=True):
-            utils.install()
-            self.assertFalse(fetch.apt_install.called)
+            with mock.patch('os.path.exists', return_value=True):
+                utils.install()
+                self.assertFalse(fetch.apt_install.called)
 
 
 class TestConfigChanged(unittest.TestCase):
