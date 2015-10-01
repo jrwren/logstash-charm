@@ -38,3 +38,18 @@ example 2 - something logging
     juju expose kibana
 
 http://ip-of-kibana
+
+
+Using the charm in fat mode
+=====================================
+
+In the course of operations, it may come to pass, the need to deploy a
+charm which does not use an external repository.
+Rather than maintain a different charm, this charm has the ability to
+convert itself to a fat charm. Run the `make fat` command to fetch
+the logstash package from the internet and insert it into this tree.
+
+When the charm is in fat mode, the apt-repository and apt-key-url are
+immutable settings. You can change them, but that will remove the
+charm from fat mode and trigger remote access for apt-repository
+and apt-key-url.

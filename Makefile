@@ -40,3 +40,13 @@ $(TESTS):
 	$@
 
 deploytest: $(TESTS)
+
+fat:
+	mkdir -p files/debian/dists/stable/main/binary-amd64
+	mkdir -p files/debian/pool/main/l/logstash
+	curl -q -s -o files/GPG-KEY-elasticsearch http://packages.elasticsearch.org/GPG-KEY-elasticsearch
+	curl -q -s -o files/debian/dists/stable/main/binary-amd64/Packages http://packages.elasticsearch.org/logstash/1.4/debian/dists/stable/main/binary-amd64/Packages
+	curl -q -s -o files/debian/pool/main/l/logstash/logstash_1.4.5-1-a2bacae_all.deb http://packages.elasticsearch.org/logstash/1.4/debian/pool/main/l/logstash/logstash_1.4.5-1-a2bacae_all.deb
+	curl -q -s -o files/debian/dists/stable/Release.gpg http://packages.elasticsearch.org/logstash/1.4/debian/dists/stable/Release.gpg
+	curl -q -s -o files/debian/dists/stable/Release http://packages.elasticsearch.org/logstash/1.4/debian/dists/stable/Release
+	./fatifyconfig.py

@@ -9,7 +9,6 @@ from charmhelpers.core import (
     hookenv,
     host,
 )
-from charmhelpers.core.services import RelationContext
 from charmhelpers.contrib.charmsupport import nrpe
 
 APT_SOURCES_LIST = '/etc/apt/sources.list.d/logstash.list'
@@ -19,6 +18,7 @@ APT_KEY_URL_KEY = 'apt-key-url'
 NAGIOS_CONTEXT_KEY = 'nagios_context'
 ES_RELATION = 'elasticsearch'
 TCP_LISTEN_PORTS_KEY = 'tcp-listen-ports'
+EXTRA_CONFIG_KEY = 'extra_config'
 
 hooks = hookenv.Hooks()
 log = hookenv.log
@@ -27,11 +27,20 @@ config = hookenv.config()
 config.implicit_save = False
 
 
+def maintenance_status(message):
+    log(message)
+    try:
+        subprocess.call(['status-set', 'maintenance', message])
+    except:
+        pass
+
+
 @hooks.hook('install')
 def install():
     log('install')
+    fat_option()
     ensure_apt_repo()
-    if not os.path.exists('/opt/logstash/bin/logstash'):
+    if not os.path.exists('/etc/init/logstash.conf'):
         fetch.apt_update()
         fetch.apt_install(SERVICE, fatal=True)
 
@@ -70,6 +79,19 @@ def upgrade_charm():
     log('upgrading charm')
 
 
+def fat_option():
+    if not config['apt-repository'] and not config['apt-key-url']:
+        config['apt-repository'] = (
+            'deb http://localhost:8000/files/debian stable main')
+        try:
+            subprocess.check_call(["apt-key", "add",
+                                   "files/GPG-KEY-elasticsearch"])
+        except Exception as e:
+            maintenance_status(e)
+        if not os.fork():
+            os.execvp('python', ['python', '-mSimpleHTTPServer'])
+
+
 def write_config_file():
     es_host, es_port = get_es_endpoint()
     if not (es_host and es_port):
@@ -88,13 +110,16 @@ output {{
 }}
 '''.format(es_host, es_port))
     inputconf = 'input {'
-    for type, port in config.get(TCP_LISTEN_PORTS_KEY, {}).iteritems():
-        inputconf += r'''  tcp {{
+    inputconf += r'''  tcp {{
             port => {}
-            type => "{}"
-        }}'''.format(port, type)
+            codec => "json"
+        }}'''.format(9999)
     inputconf += '}'
-    host.write_file('/etc/logstash/conf.d/input-elasticsearch.conf', inputconf)
+    host.write_file('/etc/logstash/conf.d/input-tcp.conf', inputconf)
+    host.write_file('/etc/logstash/conf.d/filter.conf',
+                    open('files/filter.conf').read())
+    host.write_file('/etc/logstash/conf.d/extra-config.conf',
+                    config[EXTRA_CONFIG_KEY])
     return True
 
 
@@ -125,10 +150,13 @@ def get_es_endpoint():
 def has_source_list():
     if not os.path.exists(APT_SOURCES_LIST):
         return False
-    return (
-        open(APT_SOURCES_LIST, 'r').read().strip()
-        in config[APT_REPOSITORY_KEY]
-    )
+    try:
+        return (
+            open(APT_SOURCES_LIST, 'r').read().strip()
+            in config[APT_REPOSITORY_KEY]
+        )
+    except:
+        return False
 
 
 def ensure_apt_repo():
@@ -140,6 +168,8 @@ def ensure_apt_repo():
 
 
 def apt_key_add(keyurl):
+    if not keyurl:
+        return
     try:
         r = urllib2.urlopen(keyurl)
         data = r.read()
@@ -157,80 +187,20 @@ def add_source_list():
     host.write_file(APT_SOURCES_LIST, config[APT_REPOSITORY_KEY] + "\n")
 
 
-def get_next_port(ports):
-    if ports:
-        return max(ports) + 1
-    return 11001
-
-
 @hooks.hook('input-tcp-relation-joined')
 @hooks.hook('input-tcp-relation-changed')
 def tcp_input_relation_joined():
-    lsr = LogstashTcpRelation()
-    log("LogstashTcpRelation: {}".format(lsr))
-    if 'input-tcp' not in lsr:
-        return
-    r = lsr['input-tcp']
-    if not r or 'types' not in r[0]:
-        return
-    types = r[0]['types'].split()
-
-    portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
-    for type in types:
-        next_port = get_next_port([port for rel, port in portmap.iteritems()])
-        portmap[type] = next_port
-    log("input-tcp-relation-joined/changed: using {} ".format(
-        portmap))
-    config[TCP_LISTEN_PORTS_KEY] = portmap
-    config.save()
-    if 'groks' in r[0]:
-        groks = r[0]['groks'].split()
-        config['grokmap'] = zip(types, groks)
-    hookenv.relation_set(ports=' '.join(
-        [str(port) for _, port in portmap.iteritems()]))
+    log("input-tcp-relation-joined/changed")
+    hookenv.relation_set(port=9999)
     write_config_and_restart()
-
-
-@hooks.hook('input-tcp-relation-departed')
-@hooks.hook('input-tcp-relation-broken')
-def tcp_input_relation_departed():
-    lsr = LogstashTcpRelation()
-    log("LogstashTcpRelation: {}".format(lsr))
-    print("LogstashTcpRelation: {}".format(lsr))
-    r = lsr['input-tcp']
-    if not r or 'types' not in r[0]:
-        return
-    # Assume that each unit of a relation sends identical values.
-    # This should be true because all units have the same charm config.
-    types = r[0]['types'].split()
-
-    portmap = config.get(TCP_LISTEN_PORTS_KEY, {})
-    for type in types:
-        print "found:"+type
-        if type in portmap:
-            print "removing "+type
-            del portmap[type]
-    config[TCP_LISTEN_PORTS_KEY] = portmap
-    write_config_and_restart()
-    log("input-tcp-relation-departed: new ports {}".format(
-        str(portmap)))
-    print("input-tcp-relation-departed: new ports {}".format(
-        str(portmap)))
-
-
-def get_listen_ports():
-    if config.get(TCP_LISTEN_PORTS_KEY, False):
-        return [port for rel, port in config[TCP_LISTEN_PORTS_KEY].iteritems()]
-    return []
 
 
 @hooks.hook('nrpe-external-master-relation-changed')
 @hooks.hook('local-monitors-relation-changed')
 def update_nrpe_checks():
-    listen_ports = get_listen_ports()
     nrpe_compat = nrpe.NRPE()
     ip_address = hookenv.unit_private_ip()
-    for port in listen_ports:
+    for port in [9999]:
         nrpe_compat.add_check(
             shortname=SERVICE,
             description='Check port listening',
@@ -251,12 +221,6 @@ def elasticsearch_relation_hooks_gone():
 def elasticsearch_relation_hooks():
     log("elasticsearch-relation-(joined|changed)")
     write_config_and_restart()
-
-
-class LogstashTcpRelation(RelationContext):
-    name = 'input-tcp'
-    interface = 'logstash-tcp'
-    required_keys = ['types']
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 import os
 import re
+import subprocess
 import sys
 import unittest
 
@@ -38,6 +39,9 @@ host.service = mock.MagicMock(return_value=True)
 host.write_file = mock.MagicMock()
 fetch.apt_install = mock.MagicMock()
 fetch.apt_update = mock.MagicMock()
+subprocess.check_call = mock.MagicMock()
+subprocess.call = mock.MagicMock()
+os.fork = mock.MagicMock(return_value=0)
 
 import utils
 
@@ -68,6 +72,21 @@ class TestInstall(unittest.TestCase):
             with mock.patch('os.path.exists', return_value=True):
                 utils.install()
                 self.assertFalse(fetch.apt_install.called)
+
+    def test_local_repo_if_empty_apt_config(self):
+        subprocess.check_call.reset_mock()
+        config['apt-repository'] = ''
+        config['apt-key-url'] = ''
+        with mock.patch('os.execvp') as oexec:
+            utils.install()
+            self.assertEqual(os.fork.call_count, 1)
+            self.assertEqual(oexec.call_count, 1)
+            self.assertEqual(oexec.call_args[0][0], 'python')
+            self.assertEqual(oexec.call_args[0][1],
+                             ['python', '-mSimpleHTTPServer'])
+        self.assertEqual(subprocess.check_call.call_count, 1)
+        self.assertEqual(subprocess.check_call.call_args_list[0][0][0],
+                         ['apt-key', 'add', 'files/GPG-KEY-elasticsearch'])
 
 
 class TestConfigChanged(unittest.TestCase):
@@ -162,8 +181,9 @@ class TestStart(unittest.TestCase):
         utils.start()
 
     def test_start_runs_service(self):
+        host.service.reset_mock()
         utils.start()
-        host.service.assert_called_with('start', 'logstash')
+        host.service.assert_called_once_with('start', 'logstash')
 
 
 class TestStop(unittest.TestCase):
@@ -172,8 +192,9 @@ class TestStop(unittest.TestCase):
         utils.stop()
 
     def test_stop_stops_service(self):
+        host.service.reset_mock()
         utils.stop()
-        host.service.assert_called_with('stop', 'logstash')
+        host.service.assert_called_once_with('stop', 'logstash')
 
 
 class TestNRPERelation(unittest.TestCase):
@@ -197,7 +218,7 @@ class TestNRPERelation(unittest.TestCase):
             nrpe().add_check.assert_called_once_with(
                 shortname="logstash",
                 description="Check port listening",
-                check_cmd="check_tcp -H {} -p 11001"
+                check_cmd="check_tcp -H {} -p 9999"
                 "".format(hookenv.unit_private_ip()))
 
     def test_nrpe_is_empty_if_no_tcp_relation(self):
@@ -253,49 +274,20 @@ class TestInputTcpRelation(unittest.TestCase):
         utils.tcp_input_relation_joined()
 
     def test_tcp_input_relation_one_port_write_config_file(self):
-        self.mhookenv.relation_get.side_effect = [{'groks': 'a',
-                                                   'types': 'c'}]
         host.write_file.reset_mock()
         utils.tcp_input_relation_joined()
         self.assertTrue(host.write_file.called)
         contents = host.write_file.call_args_list[1][0][1]
         self.assertTrue(None is not re.search(
             r'''input \s* { \s* tcp \s* {\s*
-            port \s* => \s* 11001 \s*
-            type \s* => \s* "c" \s*
+            port \s* => \s* 9999 \s*
+            codec \s* => \s* "json" \s*
         }\s*
         }''', contents, re.VERBOSE | re.MULTILINE), contents)
-
-    def test_tcp_input_relation_write_config_on_departed(self):
-        utils.tcp_input_relation_joined()
-        host.write_file.reset_mock()
-        utils.tcp_input_relation_departed()
-        self.assertTrue(host.write_file.called)
-        contents = host.write_file.call_args_list[1][0][1]
-        self.assertEquals(r'input {}', contents)
 
     def test_tcp_input_relation_sets_ports(self):
         utils.tcp_input_relation_joined()
         self.assertTrue(hookenv.relation_set.called)
         print hookenv.relation_set.call_args
-        self.assertEquals({'ports': '11001 11002'},
+        self.assertEqual({'port': 9999},
                           hookenv.relation_set.call_args_list[0][1])
-
-    def test_tcp_input_relation_sets_many_ports(self):
-        x = utils.LogstashTcpRelation()
-        print x
-        self.assertEquals("c d", x['input-tcp'][0]['types'])
-        host.write_file.reset_mock()
-        utils.tcp_input_relation_joined()
-        self.assertTrue(host.write_file.called)
-        contents = host.write_file.call_args_list[1][0][1]
-        self.assertTrue(None is not re.search(
-            r'''input \s* { \s* tcp \s* {\s*
-            port \s* => \s* 11001 \s*
-            type \s* => \s* "c" \s*
-        }\s*
-            tcp \s* { \s*
-            port \s* => \s* 11002 \s*
-            type \s* => \s* "d" \s*
-        }\s*
-        }''', contents, re.VERBOSE | re.MULTILINE), contents)
